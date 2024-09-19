@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Egg space</title>
+<style>
+body { margin: 0; padding: 0; overflow: hidden; background-color: #000000; }
+#gameArea {
+position: relative;
+width: 100vw;
+height: 100vh;
+perspective: 10000px;
+}
+.spaceship {
+position: absolute;
+min-width: 140px;
+height: 87px;
+background: url('spaceship.png') no-repeat center center / contain;
+}
+.bullet {
+position: absolute;
+width: 2.1%;
+height: 50px;
+background: url('bullet.png') no-repeat center center / contain;
+}
+
+.explosion {
+position: absolute;
+width: 4%;
+height: 55px;
+background: url('explosion.png') no-repeat center center / contain;
+animation: explosion-animation 0.3s steps(4) forwards;
+}
+@keyframes explosion-animation {
+100% { opacity: 0; transform: scale(2); }
+}
+#game-info {
+position: fixed;
+top: 10px;
+left: 10px;
+color: white;
+font-family: Arial, sans-serif;
+z-index: 100;
+}
+#pauseButton {
+position: fixed;
+top: 10px;
+right: 10px;
+padding: 10px 20px;
+background-color: gold;
+color: black;
+border: none;
+font-size: 16px;
+cursor: pointer;
+z-index: 100;
+transition: 0.4s;
+}
+#pauseButton:hover {
+transition: 0.4s;
+background-color: #5e5e5ec5;
+color: gold;
+border: 3px solid gold;
+
+}     
+#timer {
+position: fixed;
+top: 10px;
+left: 120px;
+color: white;
+font-family: Arial, sans-serif;
+z-index: 100;
+}
+section {
+height: 100vh;
+display: flex;
+justify-content: center;
+align-items: center;
+background-position: center;
+}
+</style>
+<link rel="stylesheet" href="test.css">
+</head>
+<body>
+<section>
+<div id="gameArea">
+<div id="spaceship" class="spaceship"></div>
+</div>
+<div id="game-info">
+<p id="score">النتيجة: 0</p>
+<p id="lives">الحياة: 3</p>
+<p id="timer">الوقت: 0</p>
+</div>
+<button id="pauseButton">توقف</button>
+<!-- عناصر الصوت -->
+<audio id="shootSound" src="shoot.mp3"></audio>
+<audio id="explosionSound" src="explosion.mp3"></audio>
+<!-- أزرار التحكم في الهاتف -->
+<div id="mobile-controls">
+<button id="moveUp" class="control-button">↑</button>
+<button id="moveDown" class="control-button">↓</button>
+<button id="moveLeft" class="control-button">←</button>
+<button id="moveRight" class="control-button">→</button>
+<button id="shoot" class="control-button">🔫</button>
+</div>
+
+
+</section>
+<script>
+const gameArea = document.getElementById('gameArea');
+const spaceship = document.getElementById('spaceship');
+const scoreDisplay = document.getElementById('score');
+const livesDisplay = document.getElementById('lives');
+const timerDisplay = document.getElementById('timer');
+const pauseButton = document.getElementById('pauseButton');
+const shootSound = document.getElementById('shootSound');
+const explosionSound = document.getElementById('explosionSound');
+
+let score = 0;
+let lives = 3;
+let bullets = [];
+let asteroids = [];
+const keys = {};
+const spaceshipSpeed = 12;
+const bulletSpeed = 5;
+const asteroidSpeed = 3.3;
+const asteroidSpawnRate = 0.05;
+const bulletCooldown = 250; // فترة التهدئة بين إطلاق الصواريخ بالمللي ثانية
+
+let isPaused = false;
+let startTime = Date.now();
+let elapsedTime = 0;
+let lastBulletTime = 0; // الوقت الذي تم فيه إطلاق آخر صاروخ
+
+spaceship.style.left = gameArea.offsetWidth / 2 - spaceship.offsetWidth / 2 + 'px';
+spaceship.style.top = gameArea.offsetHeight - spaceship.offsetHeight - 10 + 'px';
+
+document.addEventListener('keydown', (e) => {
+keys[e.code] = true;
+});
+
+document.addEventListener('keyup', (e) => {
+keys[e.code] = false;
+});
+
+pauseButton.addEventListener('click', () => {
+isPaused = !isPaused;
+pauseButton.textContent = isPaused ? 'إستئناف' : 'توقف ';
+});
+
+function moveSpaceship() {
+if (keys['ArrowUp']) spaceship.style.top = Math.max(0, spaceship.offsetTop - spaceshipSpeed) + 'px';
+if (keys['ArrowDown']) spaceship.style.top = Math.min(gameArea.offsetHeight - spaceship.offsetHeight, spaceship.offsetTop + spaceshipSpeed) + 'px';
+if (keys['ArrowLeft']) spaceship.style.left = Math.max(0, spaceship.offsetLeft - spaceshipSpeed) + 'px';
+if (keys['ArrowRight']) spaceship.style.left = Math.min(gameArea.offsetWidth - spaceship.offsetWidth, spaceship.offsetLeft + spaceshipSpeed) + 'px';
+}
+
+function shootBullet() {
+const now = Date.now();
+if (now - lastBulletTime >= bulletCooldown) { // التحقق من مرور الوقت الكافي
+const bullet = document.createElement('div');
+bullet.className = 'bullet';
+bullet.style.left = spaceship.offsetLeft + spaceship.offsetWidth / 2 - 10 + 'px'; // تعديل الموضع ليناسب الحجم الجديد
+bullet.style.top = spaceship.offsetTop - 40 + 'px'; // تعديل الموضع ليناسب الحجم الجديد
+gameArea.appendChild(bullet);
+bullets.push(bullet);
+lastBulletTime = now; // تحديث وقت آخر صاروخ
+shootSound.play(); // تشغيل صوت إطلاق الصاروخ
+}
+}
+
+function moveBullets() {
+bullets.forEach((bullet, index) => {
+bullet.style.top = bullet.offsetTop - bulletSpeed + 'px';
+if (bullet.offsetTop < 0) {
+gameArea.removeChild(bullet);
+bullets.splice(index, 1);
+}
+});
+}
+
+function spawnAsteroid() {
+const asteroid = document.createElement('div');
+asteroid.className = 'asteroid';
+asteroid.style.left = Math.random() * (gameArea.offsetWidth - 60) + 'px';
+asteroid.style.top = '-60px';
+gameArea.appendChild(asteroid);
+asteroids.push(asteroid);
+}
+
+function moveAsteroids() {
+asteroids.forEach((asteroid, index) => {
+asteroid.style.top = asteroid.offsetTop + asteroidSpeed + 'px';
+if (asteroid.offsetTop > gameArea.offsetHeight) {
+gameArea.removeChild(asteroid);
+asteroids.splice(index, 1);
+}
+});
+}
+
+function createExplosion(x, y) {
+const explosion = document.createElement('div');
+explosion.className = 'explosion';
+explosion.style.left = x + 'px';
+explosion.style.top = y + 'px';
+gameArea.appendChild(explosion);
+setTimeout(() => gameArea.removeChild(explosion), 500);
+explosionSound.play(); // تشغيل صوت الانفجار
+}
+
+function checkCollision() {
+asteroids.forEach((asteroid, asteroidIndex) => {
+const asteroidRect = asteroid.getBoundingClientRect();
+const spaceshipRect = spaceship.getBoundingClientRect();
+
+if (
+asteroidRect.left < spaceshipRect.left + spaceshipRect.width &&
+asteroidRect.left + asteroidRect.width > spaceshipRect.left &&
+asteroidRect.top < spaceshipRect.top + spaceshipRect.height &&
+asteroidRect.top + asteroidRect.height > spaceshipRect.top
+) {
+lives--;
+gameArea.removeChild(asteroid);
+asteroids.splice(asteroidIndex, 1);
+createExplosion(asteroidRect.left, asteroidRect.top);
+if (lives <= 0) {
+alert('لقد خسرت حاول مرة أخرة');
+resetGame();
+}
+updateScore();
+}
+
+bullets.forEach((bullet, bulletIndex) => {
+const bulletRect = bullet.getBoundingClientRect();
+if (
+bulletRect.left < asteroidRect.left + asteroidRect.width &&
+bulletRect.left + bulletRect.width > asteroidRect.left &&
+bulletRect.top < asteroidRect.top + asteroidRect.height &&
+bulletRect.top + bulletRect.height > asteroidRect.top
+) {
+score += 10;
+gameArea.removeChild(asteroid);
+gameArea.removeChild(bullet);
+asteroids.splice(asteroidIndex, 1);
+bullets.splice(bulletIndex, 1);
+createExplosion(asteroidRect.left, asteroidRect.top);
+updateScore();
+}
+});
+});
+}
+
+function updateScore() {
+scoreDisplay.textContent = `النتيجة: ${score}`;
+livesDisplay.textContent = `الحياة: ${lives}`;
+}
+
+function updateTime() {
+elapsedTime = Math.floor((Date.now() - startTime) / 1000);
+timerDisplay.textContent = `الوقت: ${elapsedTime}`;
+}
+
+function resetGame() {
+score = 0;
+lives = 4;
+asteroids.forEach(asteroid => gameArea.removeChild(asteroid));
+bullets.forEach(bullet => gameArea.removeChild(bullet));
+asteroids = [];
+bullets = [];
+startTime = Date.now();
+updateScore();
+updateTime();
+}
+
+function gameLoop() {
+if (!isPaused) {
+moveSpaceship();
+moveBullets();
+moveAsteroids();
+checkCollision();
+updateTime();  // استدعاء دالة تحديث الوقت هنا
+if (Math.random() < asteroidSpawnRate) spawnAsteroid();
+if (keys['Space']) shootBullet();
+}
+requestAnimationFrame(gameLoop);
+}
+
+gameLoop();
+function checkCollision() {
+asteroids.forEach((asteroid, asteroidIndex) => {
+const asteroidRect = asteroid.getBoundingClientRect();
+const spaceshipRect = spaceship.getBoundingClientRect();
+
+if (
+asteroidRect.left < spaceshipRect.left + spaceshipRect.width &&
+asteroidRect.left + asteroidRect.width > spaceshipRect.left &&
+asteroidRect.top < spaceshipRect.top + spaceshipRect.height &&
+asteroidRect.top + asteroidRect.height > spaceshipRect.top
+) {
+lives--;
+gameArea.removeChild(asteroid);
+asteroids.splice(asteroidIndex, 1);
+createExplosion(asteroidRect.left, asteroidRect.top);
+
+// إضافة تأثير الاهتزاز
+spaceship.classList.add('shake');
+setTimeout(() => {
+spaceship.classList.remove('shake');
+}, 500); // مدة الاهتزاز كما تم تحديدها في CSS
+
+if (lives <= 0) {
+alert('لم تخسر، ولكنك حاولت وهذا هو النجاح😊');
+resetGame();
+}
+updateScore();
+}
+
+bullets.forEach((bullet, bulletIndex) => {
+const bulletRect = bullet.getBoundingClientRect();
+if (
+bulletRect.left < asteroidRect.left + asteroidRect.width &&
+bulletRect.left + bulletRect.width > asteroidRect.left &&
+bulletRect.top < asteroidRect.top + asteroidRect.height &&
+bulletRect.top + bulletRect.height > asteroidRect.top
+) {
+score += 10;
+gameArea.removeChild(asteroid);
+gameArea.removeChild(bullet);
+asteroids.splice(asteroidIndex, 1);
+bullets.splice(bulletIndex, 1);
+createExplosion(asteroidRect.left, asteroidRect.top);
+updateScore();
+}
+});
+});
+}
+function spawnHeart() {
+const heart = document.createElement('div');
+heart.className = 'heart';
+heart.style.left = Math.random() * (gameArea.offsetWidth - 50) + 'px'; // موقع أفقي عشوائي
+heart.style.top = Math.random() * (gameArea.offsetHeight - 50) + 'px'; // موقع عمودي عشوائي
+gameArea.appendChild(heart);
+
+// تحقق من الاصطدام بالسفينة الفضائية
+setInterval(() => {
+const heartRect = heart.getBoundingClientRect();
+const spaceshipRect = spaceship.getBoundingClientRect();
+
+if (
+heartRect.left < spaceshipRect.left + spaceshipRect.width &&
+heartRect.left + heartRect.width > spaceshipRect.left &&
+heartRect.top < spaceshipRect.top + spaceshipRect.height &&
+heartRect.top + heartRect.height > spaceshipRect.top
+) {
+lives++;
+updateScore();
+gameArea.removeChild(heart);
+}
+}, 100); // تحقق كل 100 مللي ثانية
+}
+function gameLoop() {
+if (!isPaused) {
+moveSpaceship();
+moveBullets();
+moveAsteroids();
+checkCollision();
+updateTime();
+
+if (Math.random() < 0.01) spawnHeart(); // فرصة ضئيلة لتوليد قلب في كل دورة
+if (Math.random() < asteroidSpawnRate) spawnAsteroid();
+if (keys['Space']) shootBullet();
+}
+requestAnimationFrame(gameLoop);
+}
+function updateScore() {
+scoreDisplay.textContent = `النتيجة: ${score}`;
+livesDisplay.textContent = `الحياة: ${lives}`;
+}
+function spawnHeart() {
+const heart = document.createElement('div');
+heart.className = 'heart';
+heart.style.left = Math.random() * (gameArea.offsetWidth - 50) + 'px';
+heart.style.top = '-60px'; // يبدأ خارج الشاشة من الأعلى
+gameArea.appendChild(heart);
+
+function moveHeart() {
+heart.style.top = heart.offsetTop + asteroidSpeed + 'px';
+
+// إذا وصل القلب إلى أسفل الشاشة، قم بإزالته
+if (heart.offsetTop > gameArea.offsetHeight) {
+gameArea.removeChild(heart);
+return;
+}
+
+// تحقق من الاصطدام بالسفينة الفضائية
+const heartRect = heart.getBoundingClientRect();
+const spaceshipRect = spaceship.getBoundingClientRect();
+
+if (
+heartRect.left < spaceshipRect.left + spaceshipRect.width &&
+heartRect.left + heartRect.width > spaceshipRect.left &&
+heartRect.top < spaceshipRect.top + spaceshipRect.height &&
+heartRect.top + heartRect.height > spaceshipRect.top
+) {
+lives++;
+updateScore();
+gameArea.removeChild(heart);
+return;
+}
+
+requestAnimationFrame(moveHeart);
+}
+
+requestAnimationFrame(moveHeart);
+}
+function gameLoop() {
+if (!isPaused) {
+moveSpaceship();
+moveBullets();
+moveAsteroids();
+checkCollision();
+updateTime();
+
+if (Math.random() < 0.001) spawnHeart(); // فرصة ضئيلة لتوليد قلب في كل دورة
+if (Math.random() < asteroidSpawnRate) spawnAsteroid();
+if (keys['Space']) shootBullet();
+}
+requestAnimationFrame(gameLoop);
+}
+const heartSpeed = 0; // سرعة نزول القلب. يمكنك تعديل القيمة كما تريد.
+function moveHeart() {
+heart.style.top = heart.offsetTop + heartSpeed + 'px'; // استخدام سرعة القلب المحددة هنا
+
+// إذا وصل القلب إلى أسفل الشاشة، قم بإزالته
+if (heart.offsetTop > gameArea.offsetHeight) {
+gameArea.removeChild(heart);
+return;
+}
+
+// تحقق من الاصطدام بالسفينة الفضائية
+const heartRect = heart.getBoundingClientRect();
+const spaceshipRect = spaceship.getBoundingClientRect();
+
+if (
+heartRect.left < spaceshipRect.left + spaceshipRect.width &&
+heartRect.left + heartRect.width > spaceshipRect.left &&
+heartRect.top < spaceshipRect.top + spaceshipRect.height &&
+heartRect.top + heartRect.height > spaceshipRect.top
+) {
+lives++;
+updateScore();
+gameArea.removeChild(heart);
+return;
+}
+
+requestAnimationFrame(moveHeart);
+}
+// الحصول على عناصر الأزرار
+// للحصول على العناصر
+const moveUpButton = document.getElementById('moveUp');
+const moveDownButton = document.getElementById('moveDown');
+const moveLeftButton = document.getElementById('moveLeft');
+const moveRightButton = document.getElementById('moveRight');
+const shootButton = document.getElementById('shoot');
+
+// متغيرات للتحكم في استمرار الحركة
+let moveInterval;
+let shootInterval;
+
+// تعريف الدوال للتكرار
+function startMoving(direction) {
+if (moveInterval) clearInterval(moveInterval);
+moveInterval = setInterval(() => {
+if (direction === 'up') {
+spaceship.style.top = Math.max(0, spaceship.offsetTop - spaceshipSpeed) + 'px';
+} else if (direction === 'down') {
+spaceship.style.top = Math.min(gameArea.offsetHeight - spaceship.offsetHeight, spaceship.offsetTop + spaceshipSpeed) + 'px';
+} else if (direction === 'left') {
+spaceship.style.left = Math.max(0, spaceship.offsetLeft - spaceshipSpeed) + 'px';
+} else if (direction === 'right') {
+spaceship.style.left = Math.min(gameArea.offsetWidth - spaceship.offsetWidth, spaceship.offsetLeft + spaceshipSpeed) + 'px';
+}
+}, 20); // تكرار كل 20 مللي ثانية
+}
+
+function stopMoving() {
+clearInterval(moveInterval);
+moveInterval = null;
+}
+
+function startShooting() {
+if (shootInterval) return; // إذا كانت عملية الإطلاق مستمرة بالفعل، لا تبدأ جديدة
+shootInterval = setInterval(() => {
+shootBullet();
+}, bulletCooldown); // إطلاق صاروخ حسب فترة التهدئة
+}
+
+function stopShooting() {
+clearInterval(shootInterval);
+shootInterval = null;
+}
+
+// تعيين أحداث الضغط
+moveUpButton.addEventListener('mousedown', () => startMoving('up'));
+moveDownButton.addEventListener('mousedown', () => startMoving('down'));
+moveLeftButton.addEventListener('mousedown', () => startMoving('left'));
+moveRightButton.addEventListener('mousedown', () => startMoving('right'));
+shootButton.addEventListener('mousedown', () => startShooting());
+
+// تعيين أحداث رفع الضغط
+moveUpButton.addEventListener('mouseup', stopMoving);
+moveDownButton.addEventListener('mouseup', stopMoving);
+moveLeftButton.addEventListener('mouseup', stopMoving);
+moveRightButton.addEventListener('mouseup', stopMoving);
+shootButton.addEventListener('mouseup', stopShooting);
+
+// للتأكد من توقف الحركة عند الخروج من الزر
+document.addEventListener('mouseleave', stopMoving);
+document.addEventListener('mouseleave', stopShooting);
+// للحصول على عناصر التحكم في الهاتف
+function startMoving(direction) {
+    if (moveInterval) clearInterval(moveInterval);
+    moveInterval = setInterval(() => {
+        if (direction === 'up') {
+            spaceship.style.top = Math.max(0, spaceship.offsetTop - spaceshipSpeed) + 'px';
+        } else if (direction === 'down') {
+            spaceship.style.top = Math.min(gameArea.offsetHeight - spaceship.offsetHeight, spaceship.offsetTop + spaceshipSpeed) + 'px';
+        } else if (direction === 'left') {
+            spaceship.style.left = Math.max(0, spaceship.offsetLeft - spaceshipSpeed) + 'px';
+        } else if (direction === 'right') {
+            spaceship.style.left = Math.min(gameArea.offsetWidth - spaceship.offsetWidth, spaceship.offsetLeft + spaceshipSpeed) + 'px';
+        }
+    }, 20); // تكرار كل 20 مللي ثانية
+}
+
+function stopMoving() {
+    clearInterval(moveInterval);
+    moveInterval = null;
+}
+
+function startShooting() {
+    if (shootInterval) return; // إذا كانت عملية الإطلاق مستمرة بالفعل، لا تبدأ جديدة
+    shootInterval = setInterval(() => {
+        shootBullet();
+    }, bulletCooldown); // إطلاق صاروخ حسب فترة التهدئة
+}
+
+function stopShooting() {
+    clearInterval(shootInterval);
+    shootInterval = null;
+}
+
+// تعيين أحداث اللمس
+moveUpButton.addEventListener('touchstart', () => startMoving('up'));
+moveDownButton.addEventListener('touchstart', () => startMoving('down'));
+moveLeftButton.addEventListener('touchstart', () => startMoving('left'));
+moveRightButton.addEventListener('touchstart', () => startMoving('right'));
+shootButton.addEventListener('touchstart', () => startShooting());
+
+// تعيين أحداث رفع اللمس
+moveUpButton.addEventListener('touchend', stopMoving);
+moveDownButton.addEventListener('touchend', stopMoving);
+moveLeftButton.addEventListener('touchend', stopMoving);
+moveRightButton.addEventListener('touchend', stopMoving);
+shootButton.addEventListener('touchend', stopShooting);
+
+// للتأكد من توقف الحركة عند مغادرة اللمس
+document.addEventListener('touchend', stopMoving);
+document.addEventListener('touchend', stopShooting);
+
+
+</script>
+</body>
+</html>
